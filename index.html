@@ -51,6 +51,8 @@
       <div class="map-side" id="mapSide"></div>
       <div class="legend" id="legend" hidden></div>
       <div class="map-banner" id="mapBanner" hidden></div>
+      <button class="map-patrol" id="patrolBtn" data-a="toggle-patrol" aria-expanded="false" aria-controls="patrolPop" hidden></button>
+      <div class="patrol-pop" id="patrolPop" role="region" aria-label="Next patrol" hidden></div>
       <div class="map-pill" id="visitPill" hidden><span class="lg-diamond" style="border-color:var(--surface);background:var(--ink)"></span>Visits shown<button data-a="toggle-visits">Hide</button></div>
       <div class="fabs" id="fab" hidden>
         <button class="fab" data-a="start-place" data-kind="visit"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add visit</button>
@@ -60,7 +62,12 @@
       <div class="editbar" id="mapCard" hidden></div>
     </section>
     <section class="view" id="view-nests" data-view="nests" hidden></section>
+    <section class="view" id="view-gear" data-view="gear" hidden></section>
+    <section class="view" id="view-patrols" data-view="patrols" hidden></section>
+    <section class="view" id="view-alerts" data-view="alerts" hidden></section>
     <section class="view" id="view-visits" data-view="visits" hidden></section>
+    <section class="view" id="view-team" data-view="team" hidden></section>
+    <section class="view" id="view-control" data-view="control" hidden></section>
   </main>
   <nav class="tabs" id="tabs" aria-label="Sections"></nav>
 </div>

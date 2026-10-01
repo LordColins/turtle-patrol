@@ -65,10 +65,11 @@ const sb = window.supabase ? window.supabase.createClient(CONFIG.supabaseUrl, CO
 {
   const r1 = row('Database reachable and setup script run (01_setup.sql)');
   const r2 = row('Nickname sign-in installed (02_nickname_login.sql)');
+  const r4 = row('Gear, patrols and team installed (03_part2.sql)');
   const r3 = row('Private data hidden from visitors who are not signed in');
   if (!sb) {
     const m = 'The database library did not load. Check the internet connection and reload.';
-    r1('bad', m); r2('bad', m); r3('bad', m);
+    r1('bad', m); r2('bad', m); r4('bad', m); r3('bad', m);
   } else {
     try {
       const { data, error } = await sb.rpc('nickname_available', { p_nick: 'selfcheck_zz' });
@@ -89,6 +90,14 @@ const sb = window.supabase ? window.supabase.createClient(CONFIG.supabaseUrl, CO
       else if (isNetwork(e)) r2('bad', 'Cannot reach the database (see above).');
       else r2('bad', 'Error: <code>' + esc(e.message || e) + '</code>');
     }
+    try {
+      // Visitors are not allowed to call it, so "permission denied" means it is installed.
+      const { error } = await sb.rpc('get_patrols', { p_season: 2026 });
+      if (error && missingFn(error)) r4('bad', 'Not installed yet. Run <code>database/03_part2.sql</code> in Supabase → SQL Editor. Until then the Gear, Patrols, Team and Control pages show errors.');
+      else if (error && isNetwork(error)) r4('bad', 'Cannot reach the database (see above).');
+      else if (!error) r4('bad', 'Visitors who are not signed in can read patrols. Run <code>database/03_part2.sql</code> again.');
+      else r4('ok', 'Gear, patrols, attendance and the control panel are ready.');
+    } catch (e) { r4(isNetwork(e) ? 'bad' : 'warn', esc(e.message || e)); }
     try {
       const leaks = [];
       for (const t of ['nests', 'nest_results', 'visits', 'profiles', 'history']) {

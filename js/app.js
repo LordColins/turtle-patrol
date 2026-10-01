@@ -6,92 +6,14 @@ import {
   $, $$, esc, plural, today, fmt, fmtStamp, daysBetween, addMonths, longDate, dayMonth, weekday, monthShort, parseISO,
   fmtLL, parseCoords, nearestSector, NEAR_KM, kmText, resizePhoto, ico,
 } from './util.js';
-
-/* =====================================================================
-   State
-   ===================================================================== */
-const SPECIES = { cc: 'Caretta caretta', cm: 'Chelonia mydas' };
-const SPECIES_SHORT = { cc: 'Loggerhead', cm: 'Green turtle' };
-const SPECIES_V = { cc: 'Loggerhead', cm: 'Green turtle', unk: 'Species not sure' };
-const STATUS = { notprot: 'Not protected', prot: 'Protected', hatching: 'Hatching', hatched: 'Hatched', predation: 'Predation' };
-const ACTIVE = ['notprot', 'prot', 'hatching'];
-const VISIT_TYPE = { tracks: 'Tracks only', dig: 'Dug, no eggs' };
-const VISIT_TYPE_LONG = { tracks: 'Tracks only: came ashore and went back (false crawl)', dig: 'Started digging but laid no eggs (abandoned attempt)' };
-
-const S = {
-  session: null, me: null,
-  base: { regions: [], sectors: [], seasons: [], settings: { hatch_months: 2, soon_days: 7 }, people: [] },
-  year: null, data: { nests: [], results: [], visits: [], removed: [] },
-  view: 'map', sheets: [], nestFilter: 'all', nestQuery: '', legend: false, showVisits: false, started: false,
-};
-// Map interaction state
-const M = { mode: 'view', selSector: null, draft: [], drawFor: null, border: null, borderFor: null, selVertex: null, borderDirty: false,
-  placing: null, placeInfo: null, placeText: '', placeErr: '', placeKind: 'nest', focus: null, me: null, watchId: null, view: null };
-
-const isAdmin = () => S.me && S.me.role === 'admin';
-const sectorById = id => S.base.sectors.find(s => s.id === id);
-const regionById = id => S.base.regions.find(r => r.id === id);
-const sectorsOf = rid => S.base.sectors.filter(s => s.region_id === rid);
-const personName = uid => { const p = S.base.people.find(x => x.id === uid); return p ? (p.name || p.nickname) : 'someone'; };
-const resultOf = nestId => S.data.results.find(r => r.nest_id === nestId);
-const isCurrentSeason = () => S.year === new Date().getFullYear();
-const drawn = s => (s.boundary || []).length >= 3;
-function nestCode(n) { const s = sectorById(n.sector_id), r = s && regionById(s.region_id); return n.number + '-' + (r ? r.code : '?') + '-' + (s ? s.code : '?') + '-' + fmt(n.found_on); }
-const findNest = id => S.data.nests.find(n => n.id === id) || S.data.removed.find(n => n.id === id);
-const findVisit = id => S.data.visits.find(v => v.id === id);
-
-/* =====================================================================
-   Small UI helpers
-   ===================================================================== */
-let toastTimer;
-function toast(msg, ms = 3200) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, ms); }
-let busyCount = 0;
-function busy(on, text = 'Saving…') { busyCount = Math.max(0, busyCount + (on ? 1 : -1)); $('#busyText').textContent = text; $('#busy').hidden = busyCount === 0; }
-async function work(text, fn) {   // runs an action with a "Saving…" pill and turns errors into a toast; returns false on error
-  busy(true, text);
-  try { const r = await fn(); return r === undefined ? true : r; }
-  catch (e) { console.error(e); toast(friendly(e), 6000); return false; }
-  finally { busy(false); }
-}
-const statusChip = st => '<span class="chip st-' + st + '"><span class="dot"></span>' + STATUS[st] + '</span>';
-
-// Photos are private, so <img data-photo="path"> gets a short-lived link after rendering.
-async function hydratePhotos(root = document) {
-  const imgs = $$('img[data-photo]', root); if (!imgs.length) return;
-  const urls = await api.photoUrls(imgs.map(i => i.dataset.photo));
-  imgs.forEach(i => { const u = urls[i.dataset.photo]; if (u && i.src !== u) i.src = u; });
-}
-const photoImg = (path, alt, cls = '') => '<img class="' + cls + '" data-photo="' + esc(path) + '" alt="' + esc(alt) + '" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">';
-
-/* =====================================================================
-   Sheets (panels that slide up)
-   ===================================================================== */
-const SHEETS = {};
-let lastSheet = null;
-function openSheet(sh) { const top = S.sheets[S.sheets.length - 1]; if (top) top.scroll = $('#sheetBody').scrollTop; S.sheets.push(sh); renderSheet(); }
-function closeSheet() { S.sheets.pop(); if (S.sheets.length) renderSheet(); else hideSheet(); }
-function closeAllSheets() { S.sheets = []; hideSheet(); }
-function hideSheet() { $('#sheet').hidden = true; $('#scrim').hidden = true; lastSheet = null; }
-function renderSheet() {
-  const sh = S.sheets[S.sheets.length - 1];
-  if (!sh) return hideSheet();
-  const r = SHEETS[sh.kind](sh);
-  if (!r) return closeSheet();
-  const body = $('#sheetBody');
-  const keep = (lastSheet === sh && !$('#sheet').hidden) ? body.scrollTop : (sh.scroll || 0);
-  lastSheet = sh;
-  $('#sheetTitle').textContent = r.title;
-  $('#sheetBack').hidden = S.sheets.length < 2;
-  body.innerHTML = r.html;
-  $('#sheet').hidden = false; $('#scrim').hidden = false;
-  body.scrollTop = keep;
-  if (r.after) r.after();
-  hydratePhotos(body);
-}
-let pendingConfirm = null;
-function confirmSheet(title, msg, yes, danger, fn) { pendingConfirm = fn; openSheet({ kind: 'confirm', title, msg, yes, danger }); }
-SHEETS.confirm = sh => ({ title: sh.title, html: '<p style="margin:0;font-size:17px">' + sh.msg + '</p><div class="row"><button class="btn ghost" data-a="close-sheet">Cancel</button><button class="btn ' + (sh.danger ? 'danger' : 'primary') + '" data-a="confirm-yes">' + esc(sh.yes) + '</button></div>' });
-SHEETS.info = sh => ({ title: sh.title, html: '<p style="margin:0;font-size:17px">' + sh.msg + '</p><div class="row"><button class="btn primary" data-a="close-sheet">OK</button></div>' });
+import {
+  SPECIES, SPECIES_SHORT, SPECIES_V, STATUS, ACTIVE, VISIT_TYPE, VISIT_TYPE_LONG, S, M,
+  isAdmin, sectorById, regionById, sectorsOf, personName, resultOf, isCurrentSeason, drawn, nestCode, findNest, findVisit, nestTiming,
+  loadSeason, reloadBase, toast, busy, work, statusChip, switchHtml, sectorOptions, choiceGroup, radioValue, hydratePhotos, photoImg, avatar, initials,
+  SHEETS, openSheet, closeSheet, closeAllSheets, hideSheet, renderSheet, confirmSheet, runConfirm, VIEWS, ACTIONS, HOOKS, renderAll,
+} from './core.js';
+import { gearInfo, hasGearData, urgentCount, renderPatrolButton } from './team.js';
+import './control.js';
 
 /* =====================================================================
    Sign in, create account, reset password
@@ -192,7 +114,7 @@ async function doEnter(session) {
   S.session = session;
   try {
     S.me = await api.me(session.user.id);
-    S.base = await api.loadBase();
+    await reloadBase();
   } catch (e) {
     console.error(e);
     S.me = null;
@@ -214,12 +136,6 @@ async function doEnter(session) {
   renderAll();
   requestAnimationFrame(() => M.view.invalidate());
 }
-async function loadSeason() {
-  try { S.data = await api.loadSeason(S.year, isAdmin()); }
-  catch (e) { console.error(e); S.data = { nests: [], results: [], visits: [], removed: [] }; toast(friendly(e), 6000); }
-}
-async function reloadAll() { S.base = await api.loadBase(); S.me = S.base.people.find(p => p.id === S.me.id) || S.me; await loadSeason(); renderAll(); }
-async function reloadSeason() { await loadSeason(); renderAll(); }
 
 /* =====================================================================
    Frame: top bar, tabs, views
@@ -227,31 +143,42 @@ async function reloadSeason() { await loadSeason(); renderAll(); }
 const TABS = [
   { id: 'map', label: 'Map', ic: 'map' },
   { id: 'nests', label: 'Nests', ic: 'nest' },
-  { id: 'visits', label: 'Visits', ic: 'tracks', admin: true },
+  { id: 'gear', label: 'Gear', ic: 'gear' },
+  { id: 'patrols', label: 'Patrols', ic: 'cal' },
+  { id: 'alerts', label: 'Alerts', ic: 'bell' },
+  { id: 'visits', label: 'Visits', ic: 'tracks', admin: true, desc: 'Turtles that came ashore without nesting' },
+  { id: 'team', label: 'Team', ic: 'team', desc: 'Meet the team, profiles and attendance' },
+  { id: 'control', label: 'Control', ic: 'shield', admin: true, desc: 'Members, attendance, seasons, regions, rules, history, Excel' },
 ];
+const visibleTabs = () => TABS.filter(t => !t.admin || isAdmin());
+// Phones show at most 6 tabs; anything after the 5th goes under More. Wide screens show every tab in a side rail.
+const overTabs = () => { const v = visibleTabs(); return v.length > 6 ? v.slice(5) : []; };
 function renderTabs() {
-  $('#tabs').innerHTML = TABS.filter(t => !t.admin || isAdmin()).map(t =>
-    '<button class="tab" data-a="tab" data-view="' + t.id + '"' + (S.view === t.id ? ' aria-current="page"' : '') + '>' + ico(t.ic) + '<span>' + t.label + '</span></button>').join('');
+  const n = urgentCount(), vis = visibleTabs(), over = overTabs();
+  const cur = over.find(t => t.id === S.view);
+  $('#tabs').innerHTML = vis.map(t =>
+    '<button class="tab' + (over.includes(t) ? ' over' : '') + '" data-a="tab" data-view="' + t.id + '"' + (S.view === t.id ? ' aria-current="page"' : '') + '>' + ico(t.ic) + '<span>' + t.label + '</span>' +
+    (t.id === 'alerts' && n ? '<span class="badge" aria-label="' + n + ' urgent">' + n + '</span>' : '') + '</button>').join('') +
+    (over.length ? '<button class="tab more" data-a="open-more"' + (cur ? ' aria-current="page"' : '') + '>' + ico(cur ? cur.ic : 'more') + '<span>' + (cur ? cur.label : 'More') + '</span></button>' : '');
 }
+SHEETS.more = () => ({ title: 'More', html: '<div class="list">' + overTabs().map(t => '<button class="item" data-a="tab" data-view="' + t.id + '"><span class="more-ico">' + ico(t.ic) + '</span><span class="meta"><b style="font-size:17px">' + t.label + '</b><span class="l2">' + esc(t.desc || '') + '</span></span><span class="chev">' + ico('right', 'sm') + '</span></button>').join('') + '</div>' });
 function renderTop() {
   $('#yearLabel').textContent = S.year;
   const b = $('#avatarBtn');
-  b.innerHTML = S.me.photo_path ? photoImg(S.me.photo_path, '') : esc((S.me.name || S.me.nickname).split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase());
+  b.innerHTML = S.me.photo_path ? photoImg(S.me.photo_path, '') : esc(initials(S.me.name || S.me.nickname));
   hydratePhotos(b);
 }
 function showView() {
   $$('.view').forEach(v => v.hidden = v.dataset.view !== S.view);
   if (S.view === 'map') requestAnimationFrame(() => M.view && M.view.invalidate());
 }
-function renderAll() {
-  if (!S.me) return;
-  if (S.view === 'visits' && !isAdmin()) S.view = 'map';
+HOOKS.map = () => renderMap();
+VIEWS.nests = () => renderNests();
+VIEWS.visits = () => renderVisits();
+HOOKS.frame = () => {
+  if (TABS.some(t => t.id === S.view && t.admin) && !isAdmin()) S.view = 'map';
   renderTop(); renderTabs(); showView();
-  renderMap();
-  if (S.view === 'nests') renderNests();
-  if (S.view === 'visits') renderVisits();
-  if (S.sheets.length) renderSheet();
-}
+};
 
 /* =====================================================================
    Map view
@@ -277,15 +204,15 @@ const mapHandlers = {
     if (M.mode === 'place') { setPlace(ll, false); return; }
     if (M.mode === 'border') { if (M.selVertex !== null) { M.selVertex = null; renderMap(); } return; }
     if (M.mode === 'edit') { if (M.selSector) { M.selSector = null; renderMap(); } return; }
-    if (M.focus || S.legend) { M.focus = null; S.legend = false; renderMap(); }
+    if (M.focus || S.legend || M.patrolOpen) { M.focus = null; S.legend = false; M.patrolOpen = false; renderMap(); }
   },
   sectorTap(id) {
     if (M.mode === 'edit') { M.selSector = id; renderMap(); return; }
     if (M.mode === 'view') { M.focus = null; renderMapChrome(); openSheet({ kind: 'sector', id }); }
   },
   regionTap(id) { const r = regionById(id); if (r) M.view.regionView(r, S.base.sectors); },
-  nestTap(id) { if (M.mode !== 'view') return; M.focus = id; S.legend = false; renderMap(); },
-  visitTap(id) { if (M.mode !== 'view') return; M.focus = id; S.legend = false; renderMap(); },
+  nestTap(id) { if (M.mode !== 'view') return; M.focus = id; S.legend = false; M.patrolOpen = false; renderMap(); },
+  visitTap(id) { if (M.mode !== 'view') return; M.focus = id; S.legend = false; M.patrolOpen = false; renderMap(); },
   vertexTap(i) { M.selVertex = M.selVertex === i ? null : i; renderMap(); },
   midTap(i) { const p = M.border[i], q = M.border[(i + 1) % M.border.length]; M.border.splice(i + 1, 0, [+((p[0] + q[0]) / 2).toFixed(5), +((p[1] + q[1]) / 2).toFixed(5)]); M.borderDirty = true; M.selVertex = null; renderMap(); },
   borderChanged() { M.borderDirty = true; renderEditBar(); },
@@ -317,12 +244,12 @@ function renderMapChrome() {
   // Banner for an empty season, or sectors without borders
   const b = $('#mapBanner');
   const noBorders = S.base.sectors.length && !S.base.sectors.some(drawn);
-  if (M.mode === 'view' && noBorders) { b.hidden = false; b.textContent = admin ? 'Draw the beach sectors: tap the pencil' : 'Beach sectors are not drawn yet'; }
-  else if (M.mode === 'view' && !S.data.nests.length) { b.hidden = false; b.textContent = 'No nests logged for ' + S.year + ' yet'; }
+  if (M.mode === 'view' && !M.focus && noBorders) { b.hidden = false; b.textContent = admin ? 'Draw the beach sectors: tap the pencil' : 'Beach sectors are not drawn yet'; }
+  else if (M.mode === 'view' && !M.focus && !S.data.nests.length) { b.hidden = false; b.textContent = 'No nests logged for ' + S.year + ' yet'; }
   else b.hidden = true;
   $('#visitPill').hidden = !visitsOnMap() || M.mode !== 'view';
   $('#fab').hidden = M.mode !== 'view' || !!M.focus;
-  renderEditBar(); renderMapCard();
+  renderEditBar(); renderMapCard(); renderPatrolButton();
 }
 
 function renderEditBar() {
@@ -432,15 +359,6 @@ function startGps(onFirst) {
 /* =====================================================================
    Nests
    ===================================================================== */
-function nestTiming(n) {
-  if (n.status === 'hatched') return isAdmin() ? (resultOf(n.id) ? 'Hatched, results recorded' : 'Hatched, results not recorded yet') : '';
-  if (n.status === 'predation') return 'Lost to predation';
-  const d = daysBetween(today(), n.expected_hatch);
-  if (d > 1) return 'Expected to hatch in ' + d + ' days';
-  if (d === 1) return 'Expected to hatch tomorrow';
-  if (d === 0) return 'Expected to hatch today';
-  return plural(-d, 'day') + ' past expected hatching date';
-}
 function nestItem(n) {
   return '<button class="item" data-a="open-nest" data-id="' + n.id + '"><span class="nest-no">' + n.number + '</span>' +
     '<span class="meta"><span class="mono">' + esc(nestCode(n)) + '</span><span class="row" style="gap:4px 8px;margin:2px 0">' + statusChip(n.status) + '<span class="l2">' + esc(nestTiming(n)) + '</span></span>' +
@@ -488,7 +406,6 @@ function renderNests() {
 /* =====================================================================
    Visits (admins only)
    ===================================================================== */
-const switchHtml = (on, action, label) => '<div class="row" style="gap:8px;flex-wrap:nowrap"><span class="sw-label" aria-hidden="true">' + (on ? 'On' : 'Off') + '</span><button class="switch" role="switch" aria-checked="' + on + '" aria-label="' + esc(label) + '" data-a="' + action + '"></button></div>';
 function visitItem(v) {
   const d = parseISO(v.seen_on);
   return '<button class="item" data-a="open-visit" data-id="' + v.id + '"><span class="vdate"><b>' + d.getDate() + '</b><span>' + monthShort(v.seen_on) + '</span></span>' +
@@ -532,8 +449,9 @@ SHEETS.year = () => {
 };
 SHEETS.user = () => {
   const u = S.me, email = S.session?.user?.email || '';
-  let h = '<div class="row"><span class="avatar" style="width:52px;height:52px;font-size:18px">' + esc((u.name || u.nickname).slice(0, 2).toUpperCase()) + '</span><div><h2 style="font-size:26px">' + esc(u.name || u.nickname) + '</h2><div class="hint mono">@' + esc(u.nickname) + ' · ' + esc(email) + '</div></div></div>';
-  h += '<div class="row">' + (u.role === 'admin' ? '<span class="chip st-prot">Admin</span><span class="hint">You can edit the map, nests, visits and sectors.</span>' : '<span class="chip">Member</span><span class="hint">You can add nests, visits and photos.</span>') + '</div>';
+  let h = '<div class="row" style="flex-wrap:nowrap">' + avatar(u, 56) + '<div style="min-width:0"><h2 style="font-size:26px">' + esc(u.name || u.nickname) + '</h2><div class="hint mono" style="overflow-wrap:anywhere">@' + esc(u.nickname) + ' · ' + esc(email) + '</div></div></div>';
+  h += '<div class="row" style="gap:8px"><button class="btn" data-a="open-profile" data-id="' + u.id + '">View my profile</button><button class="btn" data-a="edit-profile">' + ico('edit', 'sm') + 'Edit profile</button></div>';
+  h += '<div class="row">' + (u.role === 'admin' ? '<span class="chip st-prot">Admin</span><span class="hint">You can edit the map, nests, gear, patrols and members.</span>' : '<span class="chip">Member</span><span class="hint">You can add nests, visits and photos, and see gear, patrols and alerts.</span>') + '</div>';
   if (u.role !== 'admin') h += u.admin_request === 'pending' ? '<div class="msg tip">Admin access requested. An admin will approve or decline it.</div>' : '<div><button class="btn" data-a="request-admin">Ask for admin access</button></div>';
   h += '<div class="placeholder"><b>Put Turtle Patrol on your home screen</b><span>iPhone: tap Share, then "Add to Home Screen". Android: tap the ⋮ menu, then "Install app" or "Add to Home screen".</span></div>';
   h += '<button class="btn danger" data-a="sign-out">Sign out</button>';
@@ -572,7 +490,7 @@ SHEETS.sectorForm = sh => {
       try {
         if (s) await api.updateSector(s.id, fields);
         else { await api.addSector({ ...fields, boundary: sh.boundary || [] }); M.mode = 'edit'; M.draft = []; M.drawFor = null; }
-        S.base = await api.loadBase();
+        await reloadBase();
         closeAllSheets(); toast(name + ' saved'); renderAll();
       } catch (ex) { err.textContent = ex.code === '23505' ? 'Another sector already uses that name or code.' : friendly(ex); }
       finally { busy(false); }
@@ -617,10 +535,7 @@ function bindPhoto(prefix, sh) {
     } catch (ex) { toast(ex.message); }
   });
 }
-const sectorOptions = sel => S.base.regions.map(r => '<optgroup label="' + esc(r.name) + '">' + sectorsOf(r.id).map(x => '<option value="' + x.id + '"' + (x.id === sel ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</optgroup>').join('');
 const nextNestNum = sid => Math.max(0, ...S.data.nests.concat(S.data.removed).filter(x => x.sector_id === sid).map(x => x.number)) + 1;
-const choiceGroup = (name, options, value) => '<div class="checks" role="radiogroup">' + Object.keys(options).map(k => '<label class="check"><input type="radio" name="' + name + '" value="' + k + '"' + (k === value ? ' checked' : '') + '>' + options[k] + '</label>').join('') + '</div>';
-const radioValue = name => { const r = document.querySelector('input[name="' + name + '"]:checked'); return r ? r.value : null; };
 
 SHEETS.newNest = sh => {
   const s = sectorById(sh.sectorId); if (!s) return null;
@@ -633,7 +548,7 @@ SHEETS.newNest = sh => {
     '<div class="two narrow-stack"><label class="field"><span>Date found</span><input class="input" id="nn-found" type="date" value="' + defFound + '"></label>' +
     '<label class="field"><span>Expected hatching</span><input class="input" id="nn-exp" type="date" value="' + addMonths(defFound, S.base.settings.hatch_months) + '"></label></div>' +
     '<div class="field"><span>Protection placed</span><div class="checks"><label class="check"><input type="checkbox" id="nn-cage" checked>Cage</label><label class="check"><input type="checkbox" id="nn-pyr" checked>Pyramid</label></div>' +
-    '<span class="hint">Untick what you could not place: the nest is then saved as Not protected.</span></div>' +
+    '<span class="hint" id="nn-gear"></span></div>' +
     photoField('nn', false) +
     '<label class="field"><span>Notes</span><textarea class="input" id="nn-notes" placeholder="Track width, distance from the sea, anything unusual"></textarea></label>' +
     '<div class="err" id="nn-err" role="alert"></div><div class="row"><button type="button" class="btn ghost" data-a="close-sheet">Cancel</button><button class="btn primary" type="submit" id="nn-go">Save nest</button></div></form>';
@@ -643,8 +558,21 @@ SHEETS.newNest = sh => {
     ex.addEventListener('input', () => expTouched = true);
     num.addEventListener('input', () => numTouched = true);
     fo.addEventListener('input', () => { if (!expTouched && fo.value) ex.value = addMonths(fo.value, S.base.settings.hatch_months); });
-    const useSector = id => { sh.sectorId = +id; sec.value = id; $('#nn-title').textContent = 'New nest in ' + sectorById(+id).name; if (!numTouched) num.value = nextNestNum(+id); };
+    // Gear: tick what was placed. With gear counts logged for the season, the free stock is shown
+    // and a box starts unticked when the beach has none left.
+    let gearTouched = false;
+    $('#nn-cage').addEventListener('change', () => gearTouched = true);
+    $('#nn-pyr').addEventListener('change', () => gearTouched = true);
+    const showGear = sid => {
+      const base = 'Untick what you could not place: the nest is then saved as Not protected and listed in Alerts.';
+      if (!hasGearData()) { $('#nn-gear').textContent = base; return; }
+      const g = gearInfo(sid);
+      if (!gearTouched) { $('#nn-cage').checked = g.freeC > 0; $('#nn-pyr').checked = g.freeP > 0; }
+      $('#nn-gear').textContent = 'Free at ' + g.sec.name + ': ' + plural(g.freeC, 'cage') + ', ' + plural(g.freeP, 'pyramid') + '. ' + base;
+    };
+    const useSector = id => { sh.sectorId = +id; sec.value = id; $('#nn-title').textContent = 'New nest in ' + sectorById(+id).name; if (!numTouched) num.value = nextNestNum(+id); showGear(+id); };
     sec.addEventListener('change', () => { sh.sectorTouched = true; useSector(sec.value); });
+    showGear(s.id);
     const read = bindCoords(sh, 'nn', useSector);
     bindPhoto('nn', sh);
     $('#newNestForm').addEventListener('submit', async e => {
@@ -880,26 +808,27 @@ function goPlace(kind, sector) {
     else if (M.view.zoom() < 12) { const r = S.base.regions[0]; if (r) M.view.regionView(r, S.base.sectors); }
   });
 }
-const ACTIONS = {
+Object.assign(ACTIONS, {
   'auth-create': () => showAuth('create'),
   'auth-login': () => showAuth('login'),
   'auth-forgot': () => showAuth('forgot'),
-  'tab': el => { S.view = el.dataset.view; if (S.view !== 'map') { M.mode = 'view'; M.focus = null; } closeAllSheets(); renderAll(); const v = $('#main .view:not([hidden])'); if (v) v.scrollTop = 0; },
+  'tab': el => { S.view = el.dataset.view; M.patrolOpen = false; if (S.view !== 'map') { M.mode = 'view'; M.focus = null; } closeAllSheets(); renderAll(); const v = $('#main .view:not([hidden])'); if (v) v.scrollTop = 0; },
   'open-year': () => openSheet({ kind: 'year' }),
+  'open-more': () => openSheet({ kind: 'more' }),
   'set-year': async el => { S.year = +el.dataset.y; M.focus = null; closeAllSheets(); await work('Loading ' + S.year + '…', loadSeason); renderAll(); toast('Showing the ' + S.year + ' season'); },
-  'add-year': async () => { const y = Math.max(new Date().getFullYear(), ...S.base.seasons.map(s => s.year)) + 1; if (await work('Adding…', async () => { await api.addSeason(y); S.base = await api.loadBase(); })) { toast('Season ' + y + ' added'); renderAll(); } },
+  'add-year': async () => { const y = Math.max(new Date().getFullYear(), ...S.base.seasons.map(s => s.year)) + 1; if (await work('Adding…', async () => { await api.addSeason(y); await reloadBase(); })) { toast('Season ' + y + ' added'); renderAll(); } },
   'open-user': () => openSheet({ kind: 'user' }),
   'sign-out': async () => { closeAllSheets(); await api.signOut().catch(() => {}); S.me = null; showAuth('login'); },
   'reload': () => location.reload(),
-  'request-admin': async () => { if (await work('Sending…', async () => { await api.requestAdmin(); S.me = await api.me(S.me.id); })) { toast('Request sent to the admins'); renderAll(); } },
+  'request-admin': async () => { if (await work('Sending…', async () => { await api.requestAdmin(); await reloadBase(); })) { toast('Request sent to the admins'); renderAll(); } },
   'close-sheet': () => { const top = S.sheets[S.sheets.length - 1]; if (top && top.kind === 'sectorForm' && !top.id) { closeAllSheets(); renderAll(); return; } closeSheet(); },
   'sheet-back': () => closeSheet(),
-  'confirm-yes': () => { const fn = pendingConfirm; pendingConfirm = null; closeSheet(); if (fn) fn(); },
+  'confirm-yes': () => runConfirm(),
   'fit-region': el => { if (el.dataset.id === 'cy') M.view.fitCyprus(); else { const r = regionById(+el.dataset.id); if (r && !M.view.regionView(r, S.base.sectors)) toast('This region has no sectors drawn yet.'); } },
   'zoom-in': () => M.view.zoomIn(),
   'zoom-out': () => M.view.zoomOut(),
   'toggle-base': () => { M.view.setBase(M.view.base === 'satellite' ? 'streets' : 'satellite'); toast(M.view.base === 'satellite' ? 'Satellite map' : 'Street map', 1500); renderMapChrome(); },
-  'toggle-legend': () => { S.legend = !S.legend; renderMapChrome(); },
+  'toggle-legend': () => { S.legend = !S.legend; if (S.legend) M.patrolOpen = false; renderMapChrome(); },
   'locate': () => startGps(me => { M.view.center([me.lat, me.lng], Math.max(M.view.zoom(), 17)); toast('Your position, accurate to about ' + Math.round(me.acc) + ' m'); }),
   'close-card': () => { M.focus = null; renderMap(); },
   'toggle-edit': () => { if (!isAdmin()) return; M.mode = M.mode === 'view' ? 'edit' : 'view'; M.selSector = null; M.draft = []; M.border = null; M.focus = null; S.legend = false; renderMap(); },
@@ -913,7 +842,7 @@ const ACTIONS = {
     if (M.draft.length < 3) return;
     if (M.drawFor) {
       const s = sectorById(M.drawFor);
-      if (await work('Saving border…', async () => { await api.updateSector(s.id, { boundary: M.draft }); S.base = await api.loadBase(); })) {
+      if (await work('Saving border…', async () => { await api.updateSector(s.id, { boundary: M.draft }); await reloadBase(); })) {
         toast('Border of ' + s.name + ' saved'); M.mode = 'edit'; M.draft = []; M.drawFor = null; M.selSector = s.id; renderAll();
       }
     } else {
@@ -926,7 +855,7 @@ const ACTIONS = {
   'border-cancel': () => { M.mode = 'edit'; M.border = null; M.selVertex = null; renderMap(); },
   'border-save': async () => {
     const s = sectorById(M.borderFor);
-    if (await work('Saving border…', async () => { await api.updateSector(s.id, { boundary: M.border }); S.base = await api.loadBase(); })) {
+    if (await work('Saving border…', async () => { await api.updateSector(s.id, { boundary: M.border }); await reloadBase(); })) {
       toast('Border of ' + s.name + ' saved'); M.mode = 'edit'; M.border = null; M.selSector = s.id; renderAll();
     }
   },
@@ -935,7 +864,7 @@ const ACTIONS = {
     const s = sectorById(+el.dataset.id);
     confirmSheet('Delete sector', 'Delete <b>' + esc(s.name) + '</b>? This only works if it has no nests, visits or patrols in any season.', 'Delete sector', true, async () => {
       busy(true);
-      try { await api.deleteSector(s.id); S.base = await api.loadBase(); M.selSector = null; toast(s.name + ' deleted'); renderAll(); }
+      try { await api.deleteSector(s.id); await reloadBase(); M.selSector = null; toast(s.name + ' deleted'); renderAll(); }
       catch (e) { openSheet({ kind: 'info', title: 'Cannot delete ' + s.name, msg: e.code === '23503' ? esc(s.name) + ' has nests, visits, gear or patrols recorded, so it is kept to protect that history. Rename it or move its border instead.' : esc(friendly(e)) }); }
       finally { busy(false); }
     });
@@ -963,7 +892,7 @@ const ACTIONS = {
     const fallback = () => { if (target) { const r = document.createRange(); r.selectNodeContents(target); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); } toast('Coordinates selected. Press and hold them to copy.'); };
     try { navigator.clipboard.writeText(v).then(() => toast('Copied: ' + v), fallback); } catch (_) { fallback(); }
   },
-};
+});
 
 /* =====================================================================
    Start

@@ -10,7 +10,11 @@ Plain HTML, CSS and JavaScript: no build step, no installs. Data, sign-in and ph
 | `index.html` | The app page |
 | `check.html` | Self-check: open it after any setup change; it says what is wrong and how to fix it |
 | `js/config.js` | **The only settings file**: Supabase address, publishable key, ArcGIS key |
-| `js/app.js` | Screens and buttons |
+| `js/core.js` | Shared state and helpers: what is loaded, toasts, sliding sheets, the lists of pages and buttons |
+| `js/app.js` | Sign-in, the map, nests, visits, sectors, seasons |
+| `js/team.js` | Gear, patrols, attendance, alerts, team and profiles |
+| `js/control.js` | Admin control panel, change history, Excel export |
+| `js/xlsx.js` | Small built-in Excel file writer |
 | `js/api.js` | Everything that talks to Supabase |
 | `js/map.js` | The satellite map (Leaflet) and the sector drawing tools |
 | `js/util.js` | Dates, coordinates, photos, icons |
@@ -23,6 +27,7 @@ Plain HTML, CSS and JavaScript: no build step, no installs. Data, sign-in and ph
 
 1. `01_setup.sql`: tables, security rules, photo storage, starting regions and sectors. If it reports that tables already exist, run `00_reset_before_setup.sql` first (only works while no nests are recorded).
 2. `02_nickname_login.sql`: sign-in with nickname while keeping emails private; locks a nickname for 15 minutes after 5 wrong passwords.
+3. `03_part2.sql`: patrols with their teams, attendance rules and stamps, moving gear, the season overview for Control.
 
 First admin: sign up on the site, then run in SQL Editor:
 `update public.profiles set role = 'admin' where lower(nickname) = lower('YOUR_NICKNAME');`

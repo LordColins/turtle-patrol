@@ -17,6 +17,7 @@ export function friendly(err, fallback = 'Something went wrong. Try again.') {
   if (/failed to fetch|networkerror|load failed|network request failed|fetch failed/i.test(msg))
     return 'No connection to the database. Check your signal and try again. If it keeps happening, the database may be paused: an admin can restore it in the Supabase dashboard.';
   if (code === 'P0001') return msg;                       // our own messages from the database
+  if (code === 'PGRST202') return 'The database needs an update: an admin should run database/03_part2.sql in Supabase → SQL Editor.';
   if (code === '42501' || /row-level security|permission denied/i.test(msg)) return 'You don\'t have permission to do that.';
   if (code === '23505') return 'That already exists.';
   if (code === '23514' || code === '22P02' || code === '22007') return 'Some values are not allowed. Check the form and try again.';
@@ -24,6 +25,9 @@ export function friendly(err, fallback = 'Something went wrong. Try again.') {
   return msg || fallback;
 }
 const must = ({ data, error }) => { if (error) throw error; return data; };
+// Part-2 database functions may be missing if 03_part2.sql has not been run yet: load the rest anyway.
+let partMissing = false;
+const soft = r => { if (r.error && r.error.code === 'PGRST202') { partMissing = true; return []; } return must(r); };
 
 export const api = {
   /* ---------- sign-in ---------- */
@@ -76,16 +80,25 @@ export const api = {
 
   /* ---------- one season's records ---------- */
   async loadSeason(year, admin) {
+    partMissing = false;
+    const shared = Promise.all([
+      sb.from('gear_stock').select('*').eq('season', year),
+      sb.rpc('get_patrols', { p_season: year }),
+      sb.rpc('get_attendance', { p_season: year }),
+    ]);
     if (!admin) {
-      return { nests: must(await sb.rpc('get_nests', { p_season: year })), results: [], visits: [], removed: [] };
+      const [nests, [gear, patrols, attendance]] = await Promise.all([sb.rpc('get_nests', { p_season: year }), shared]);
+      return { nests: must(nests), results: [], visits: [], removed: [], gear: must(gear), patrols: soft(patrols), attendance: soft(attendance), setupMissing: partMissing };
     }
-    const [nests, results, visits] = await Promise.all([
+    const [nests, results, visits, [gear, patrols, attendance]] = await Promise.all([
       sb.from('nests').select('*').eq('season', year).order('sector_id').order('number'),
       sb.from('nest_results').select('*'),
       sb.from('visits').select('*').eq('season', year).order('seen_on', { ascending: false }),
+      shared,
     ]);
     const all = must(nests);
-    return { nests: all.filter(n => !n.archived), removed: all.filter(n => n.archived), results: must(results), visits: must(visits) };
+    return { nests: all.filter(n => !n.archived), removed: all.filter(n => n.archived), results: must(results), visits: must(visits),
+      gear: must(gear), patrols: soft(patrols), attendance: soft(attendance), setupMissing: partMissing };
   },
 
   /* ---------- nests ---------- */
@@ -109,6 +122,59 @@ export const api = {
   },
   async updateVisit(id, patch) { return must(await sb.from('visits').update(patch).eq('id', id).select().single()); },
   async deleteVisit(id) { must(await sb.from('visits').delete().eq('id', id)); },
+
+  /* ---------- gear ---------- */
+  async setGear(season, sectorId, cages, pyramids) {
+    must(await sb.from('gear_stock').upsert({ season, sector_id: sectorId, cages, pyramids }, { onConflict: 'season,sector_id' }));
+  },
+  async copyGear(from, to) { must(await sb.rpc('copy_gear', { p_from: from, p_to: to })); },
+  async moveGear({ season, from, to, kind, count, protect }) {
+    return must(await sb.rpc('move_gear', { p_season: season, p_from: from, p_to: to, p_kind: kind, p_count: count, p_protect: !!protect }));
+  },
+
+  /* ---------- patrols and attendance ---------- */
+  async savePatrol(p) {
+    return must(await sb.rpc('save_patrol', { p_id: p.id || null, p_season: p.season, p_sector: p.sector_id, p_day: p.day,
+      p_starts: p.starts, p_ends: p.ends, p_notes: p.notes || '', p_team: p.team }));
+  },
+  async deletePatrol(id) { must(await sb.from('patrols').delete().eq('id', id)); },
+  async logAttendance(patrolId) { must(await sb.from('attendance').insert({ patrol_id: patrolId })); },
+  async withdrawAttendance(id) { must(await sb.from('attendance').delete().eq('id', id)); },
+  async decideAttendance(id, status) { must(await sb.from('attendance').update({ status }).eq('id', id)); },
+  async markPresent(patrolId, userId) { must(await sb.from('attendance').insert({ patrol_id: patrolId, user_id: userId, status: 'approved' })); },
+
+  /* ---------- people ---------- */
+  async updateProfile(uid, patch) { must(await sb.from('profiles').update(patch).eq('id', uid)); },
+  async removePhoto(path) { if (path) await sb.storage.from('photos').remove([path]); },
+  async adminMembers() { return must(await sb.rpc('admin_members')); },
+  async setRole(uid, role) { must(await sb.rpc('set_role', { p_user: uid, p_role: role })); },
+  async declineAdmin(uid) { must(await sb.rpc('decline_admin_request', { p_user: uid })); },
+
+  /* ---------- control panel ---------- */
+  async seasonSummary() { return must(await sb.rpc('season_summary')); },
+  async addRegion(r) { must(await sb.from('regions').insert(r)); },
+  async updateRegion(id, patch) { must(await sb.from('regions').update(patch).eq('id', id)); },
+  async deleteRegion(id) { must(await sb.from('regions').delete().eq('id', id)); },
+  async saveSettings(patch) { must(await sb.from('settings').update(patch).eq('id', 1)); },
+  async historyPage(offset, limit) {
+    return must(await sb.from('history').select('id,at,user_id,season,action,table_name,row_id,changes')
+      .order('at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + limit - 1));
+  },
+  async nestsByIds(ids) { return ids.length ? must(await sb.from('nests').select('id,season,sector_id,number,found_on').in('id', ids)) : []; },
+  async attendanceByIds(ids) { return ids.length ? must(await sb.from('attendance').select('id,patrol_id,user_id,status').in('id', ids)) : []; },
+  async patrolsByIds(ids) { return ids.length ? must(await sb.from('patrols').select('id,season,sector_id,day,starts').in('id', ids)) : []; },
+  // Everything about one season, for the Excel export (admins).
+  async exportSeason(year) {
+    const [nests, results, visits, gear, patrols, attendance] = await Promise.all([
+      sb.from('nests').select('*').eq('season', year).order('sector_id').order('number'),
+      sb.from('nest_results').select('*'),
+      sb.from('visits').select('*').eq('season', year).order('seen_on'),
+      sb.from('gear_stock').select('*').eq('season', year),
+      sb.rpc('get_patrols', { p_season: year }),
+      sb.rpc('get_attendance', { p_season: year }),
+    ]);
+    return { nests: must(nests), results: must(results), visits: must(visits), gear: must(gear), patrols: must(patrols), attendance: must(attendance) };
+  },
 
   /* ---------- photos (private store, shown through links that expire after an hour) ---------- */
   async uploadPhoto(folder, blob) {

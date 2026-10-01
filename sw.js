@@ -2,7 +2,7 @@
 // The site's own files: always fetched fresh, with the saved copy used only when there is no signal.
 // Map and database libraries: their addresses include a version number, so the saved copy is reused.
 // Database requests, photos and map tiles are never stored here.
-const CACHE = 'turtle-patrol-v1';
+const CACHE = 'turtle-patrol-v2';
 const LIBS = ['https://cdn.jsdelivr.net/', 'https://unpkg.com/', 'https://fonts.googleapis.com/', 'https://fonts.gstatic.com/'];
 
 self.addEventListener('install', () => self.skipWaiting());

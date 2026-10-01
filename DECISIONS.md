@@ -1,6 +1,6 @@
 # Sea turtle patrol website — agreed decisions
 
-Last updated: 01/10/2026. Prototype (version 3): https://claude.ai/artifact/5WfdpqqWq3tFDQSQuWv6XU
+Last updated: 01/10/2026 (part 2 of the live app built). Prototype (version 3): https://claude.ai/artifact/5WfdpqqWq3tFDQSQuWv6XU
 
 ## Look and branding
 - Sign-in page: cave picture as full background; sign-in box on top with the EMU SAGEM Underwater Research and Imaging Center logo as a faint watermark in the middle.
@@ -51,6 +51,9 @@ Last updated: 01/10/2026. Prototype (version 3): https://claude.ai/artifact/5Wfd
 - Bars show each beach's own stock (1 of 1 in use fills the bar).
 - Each sector has a "usual need". Below it → amber + alert. Nests without gear → red + alert.
 - The "Below usual need" / "Short now" chip is a button: tap to show or hide the explanation and the free-gear tip. Below usual need starts closed; Short now starts open because it is urgent. Free-gear tips are grouped per beach.
+- Live site: admins set counts with − / + or by typing the number; a count cannot go below the gear already on nests. A new season starts with "Copy counts from <last season>".
+- "Move gear" moves only free gear. When the destination has nests waiting for gear, a tick box offers to mark them protected (tick only once the gear is placed on them).
+- When adding a nest, the form shows the beach's free cages and pyramids; a box starts unticked if that beach has none left.
 
 ## Patrols and attendance
 - Date, sector, estimated start and finish, team, notes. Hot-hours warning (default 11:00–16:00).
@@ -58,6 +61,8 @@ Last updated: 01/10/2026. Prototype (version 3): https://claude.ai/artifact/5Wfd
 - NO email reminders.
 - Attendance: after a patrol starts, team members tap "I was on duty" (others can tap "I joined this patrol too" within 7 days). Status: waiting → approved or not approved by an admin.
 - Admins approve on the patrol itself or in Control → "Attendance to approve"; they can also "Mark present". Alerts remind members to log duties from the last 7 days and remind admins of waiting approvals.
+- Live site: a member can "Take back" their own attendance while it is still waiting. The database records who approved or declined it, and when. "The patrol day has come" is judged in Cyprus time.
+- Deleting a patrol also deletes its attendance records (the confirmation says so).
 
 ## Team
 - "Meet the team" page for everyone: cards with photo (or initials), name, position, status, admin badge and duties this season.
@@ -79,3 +84,13 @@ Last updated: 01/10/2026. Prototype (version 3): https://claude.ai/artifact/5Wfd
 - Supabase Pro ($25/month) is a later upgrade, once the project is established and payment is set up.
 - Members' map positions: exact for now; one setting (members_see_exact_positions) rounds them to about 100 m.
 - Step-by-step plan: claude/build-plan.md
+
+## Control panel (admins)
+- Admin requests (approve / decline), attendance to approve (season shown), members with emails and Make admin / Make member (at least one admin is always kept).
+- Seasons table: counts per season, Add season, Copy gear, Show, and an Excel download of the whole season (Summary, Nests with coordinates and results, Visits, Gear, Patrols, Attendance). The Excel file is made in the browser, no outside service.
+- Regions: add, rename, change code, delete (only when empty). Sectors: edit name, code, usual need.
+- Nest rules: months to hatching, "hatching soon" days, hot hours, and whether members see exact nest positions or positions rounded to about 100 m.
+- Change history in plain words with "Show older changes".
+
+## Database scripts (run in this order in Supabase → SQL Editor)
+- 01_setup.sql (tables, rules, photo store, starting data) · 02_nickname_login.sql (nickname sign-in, lockout) · 03_part2.sql (patrol and attendance functions, gear moves, season overview, attendance stamps). Each is safe to run again.

@@ -48,8 +48,13 @@ Converts the prototype into the real app, connected to Supabase:
 - seasons: switch, type in past seasons, admins add the next season
 - installable on phones (home screen icon); `check.html` self-check page
 
-### Step 4. Live app, part 2 (Claude)
-Gear and shortage alerts, patrols and the map Patrol button, attendance and approvals, Team and profiles, Alerts, Control panel (members, roles, admin requests, regions, rules, full history), export to Excel.
+### Step 4. Live app, part 2 (Claude) — built 01/10/2026, 84 end-to-end checks and 53 database checks pass
+- Gear: counts per beach (copy from last season, − / +, or type), shortage colours and explanations, free-gear tips, Move gear
+- Patrols: plan with date, beach, estimated start and finish, team and notes; hot-hours marking; day strip; the map's Patrol button
+- Attendance: "I was on duty" / "I joined this patrol too", take back while waiting, admin approve / decline / mark present
+- Alerts page with a badge on the tab; Team page and profiles with photos
+- Control panel: admin requests, members and roles, seasons, Excel export, regions, nest rules, change history
+- `database/03_part2.sql`: run once in SQL Editor (the self-check page reports whether it was run)
 
 ### Step 5. Put it online (together)
 1. On GitHub create an empty repository named `turtle-patrol`. Claude connects to it and puts the code there.
