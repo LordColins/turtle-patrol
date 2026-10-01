@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Turtle Patrol</title>
+<meta name="description" content="Sea turtle nest patrols for the EMU SAGEM Underwater Research and Imaging Center.">
+<meta name="theme-color" content="#0B6B6B">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Turtle Patrol">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="img/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" onerror="this.onerror=null;this.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'">
+<link rel="stylesheet" href="css/app.css">
+<script>
+  // If a library fails to load from the first address, try a second one.
+  window.__fallback = function (src) { var s = document.createElement('script'); s.src = src; document.head.appendChild(s); };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" onerror="this.onerror=null;window.__fallback('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js')"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.99.3/dist/umd/supabase.js" onerror="this.onerror=null;window.__fallback('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js')"></script>
+</head>
+<body>
+
+<!-- ============ SIGN IN ============ -->
+<div id="auth" class="auth" hidden>
+  <div class="auth-card" id="authCard"></div>
+  <p class="auth-note">Cyprus sea turtle nesting project · EMU SAGEM</p>
+</div>
+
+<!-- ============ STARTING / ERROR ============ -->
+<div id="boot" class="auth">
+  <div class="auth-card" id="bootCard"><div class="row"><span class="spinner"></span><span>Loading Turtle Patrol…</span></div></div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="brand"><img src="img/emu-sagem-logo.webp" alt="EMU SAGEM Underwater Research and Imaging Center logo"><span>Turtle Patrol</span></div>
+    <button class="year-btn" id="yearBtn" data-a="open-year" aria-label="Change season"><small>Season</small><b id="yearLabel"></b><svg class="ico sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    <button class="avatar" id="avatarBtn" data-a="open-user" aria-label="Your account"></button>
+  </header>
+  <main id="main">
+    <section class="view" id="view-map" data-view="map">
+      <div id="map" role="application" aria-label="Satellite map of Cyprus with beach sectors and nests"></div>
+      <div class="map-top"><div class="chips-scroll" id="regionChips"></div></div>
+      <div class="map-side" id="mapSide"></div>
+      <div class="legend" id="legend" hidden></div>
+      <div class="map-banner" id="mapBanner" hidden></div>
+      <div class="map-pill" id="visitPill" hidden><span class="lg-diamond" style="border-color:var(--surface);background:var(--ink)"></span>Visits shown<button data-a="toggle-visits">Hide</button></div>
+      <div class="fabs" id="fab" hidden>
+        <button class="fab" data-a="start-place" data-kind="visit"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add visit</button>
+        <button class="fab" data-a="start-place" data-kind="nest"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add nest</button>
+      </div>
+      <div class="editbar" id="editbar" hidden></div>
+      <div class="editbar" id="mapCard" hidden></div>
+    </section>
+    <section class="view" id="view-nests" data-view="nests" hidden></section>
+    <section class="view" id="view-visits" data-view="visits" hidden></section>
+  </main>
+  <nav class="tabs" id="tabs" aria-label="Sections"></nav>
+</div>
+
+<div class="scrim" id="scrim" data-a="close-sheet" hidden></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
+  <div class="sheet-head"><button class="icon-btn" id="sheetBack" data-a="sheet-back" aria-label="Back" hidden><svg class="ico" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button><div class="t" id="sheetTitle"></div><button class="icon-btn" data-a="close-sheet" aria-label="Close"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="sheet-body" id="sheetBody"></div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<div class="loading" id="busy" role="status" hidden><span class="spinner"></span><span id="busyText">Saving…</span></div>
+
+<script type="module" src="js/boot.js"></script>
+</body>
+</html>

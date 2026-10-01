@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turtle Patrol self-check</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="img/icon-192.png" type="image/png">
+<link rel="stylesheet" href="css/app.css">
+<style>
+  body{background:var(--bg);overflow:auto}
+  .wrap{max-width:640px;margin:0 auto;padding:24px 16px 48px;display:grid;gap:16px}
+  .chk{display:grid;grid-template-columns:28px 1fr;gap:4px 10px;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
+  .chk:last-child{border-bottom:0}
+  .chk .mark{font-size:20px;line-height:1.2;font-weight:700}
+  .chk.ok .mark{color:var(--ok)} .chk.bad .mark{color:var(--crit)} .chk.warn .mark{color:var(--warn)} .chk.wait .mark{color:var(--muted)}
+  .chk b{display:block}
+  .chk p{margin:2px 0 0;color:var(--muted);font-size:15px}
+  .box{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  code{font-family:'IBM Plex Mono',monospace;font-size:13px;word-break:break-all;background:var(--surface-2);padding:1px 4px;border-radius:4px}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.99.3/dist/umd/supabase.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><img src="img/emu-sagem-logo.webp" alt="EMU SAGEM logo" style="width:40px;height:40px"><span style="font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:700">Turtle Patrol self-check</span></div>
+  <p style="margin:0">This page tests that the website can reach the database, that the setup scripts were run, and that private data stays private. It changes nothing.</p>
+  <div class="box" id="list"></div>
+  <p id="summary" style="margin:0;font-weight:600"></p>
+  <p class="hint" style="margin:0"><a href="./">Open Turtle Patrol</a></p>
+</div>
+<script type="module">
+import { CONFIG } from './js/config.js';
+const list = document.getElementById('list');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const results = [];
+function row(title) {
+  const el = document.createElement('div'); el.className = 'chk wait';
+  el.innerHTML = '<span class="mark">…</span><div><b>' + esc(title) + '</b><p>Checking…</p></div>';
+  list.appendChild(el);
+  return (state, html) => { el.className = 'chk ' + state; el.querySelector('.mark').textContent = { ok: '✓', bad: '✗', warn: '!' }[state]; el.querySelector('p').innerHTML = html; results.push(state); };
+}
+const isNetwork = e => /failed to fetch|networkerror|load failed|fetch failed/i.test(String(e && e.message || e));
+const missingFn = e => e && (e.code === 'PGRST202' || /could not find the function/i.test(e.message || ''));
+
+// 1. Address
+{
+  const r = row('Secure address (https)');
+  if (location.protocol === 'https:') r('ok', 'GPS ("My location") and installing on the home screen will work.');
+  else if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') r('warn', 'Running on this computer only. Fine for testing.');
+  else r('bad', 'The site is not on https, so phones will block GPS. GitHub Pages uses https automatically.');
+}
+
+// 2. Settings file
+const okConfig = /^https:\/\/[a-z0-9]+\.supabase\.co$/.test(CONFIG.supabaseUrl || '') && /^(sb_publishable_|eyJ)/.test(CONFIG.supabaseKey || '');
+{
+  const r = row('Settings file (js/config.js)');
+  if (/secret|service_role/i.test(CONFIG.supabaseKey || '')) r('bad', 'The key in js/config.js looks like a <b>secret</b> key. Replace it with the publishable key right away, and create a new secret key in Supabase.');
+  else if (okConfig) r('ok', 'Database address: <code>' + esc(CONFIG.supabaseUrl) + '</code>');
+  else r('bad', 'The database address or key is missing or mistyped. The address looks like <code>https://abcd.supabase.co</code> (nothing after .co) and the key starts with <code>sb_publishable_</code>.');
+}
+
+// 3. Database checks
+const sb = window.supabase ? window.supabase.createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey, { auth: { persistSession: false } }) : null;
+{
+  const r1 = row('Database reachable and setup script run (01_setup.sql)');
+  const r2 = row('Nickname sign-in installed (02_nickname_login.sql)');
+  const r3 = row('Private data hidden from visitors who are not signed in');
+  if (!sb) {
+    const m = 'The database library did not load. Check the internet connection and reload.';
+    r1('bad', m); r2('bad', m); r3('bad', m);
+  } else {
+    try {
+      const { data, error } = await sb.rpc('nickname_available', { p_nick: 'selfcheck_zz' });
+      if (error) throw error;
+      r1('ok', 'Connected. The setup script is in place.');
+    } catch (e) {
+      if (isNetwork(e)) r1('bad', 'Cannot reach the database. If the internet works, the free database may be <b>paused</b> after a quiet week: open the Supabase dashboard and press <b>Restore project</b>.');
+      else if (missingFn(e)) r1('bad', 'Connected, but the setup script has not been run. Run <code>database/01_setup.sql</code> in Supabase → SQL Editor.');
+      else if (/invalid api key|no api key|unauthorized|jwt/i.test(e.message || '')) r1('bad', 'The database refused the key. Copy the publishable key again from Supabase → Project Settings → API Keys into <code>js/config.js</code>.');
+      else r1('bad', 'Error: <code>' + esc(e.message || e) + '</code>');
+    }
+    try {
+      const { data, error } = await sb.rpc('login_email', { p_nick: '', p_password: '' });
+      if (error) throw error;
+      r2('ok', 'Sign-in with nickname is ready.');
+    } catch (e) {
+      if (missingFn(e)) r2('bad', 'Not installed yet. Run <code>database/02_nickname_login.sql</code> in Supabase → SQL Editor. Until then nobody can sign in.');
+      else if (isNetwork(e)) r2('bad', 'Cannot reach the database (see above).');
+      else r2('bad', 'Error: <code>' + esc(e.message || e) + '</code>');
+    }
+    try {
+      const leaks = [];
+      for (const t of ['nests', 'nest_results', 'visits', 'profiles', 'history']) {
+        const { data, error } = await sb.from(t).select('*').limit(1);
+        if (!error && data && data.length) leaks.push(t);
+      }
+      if (leaks.length) r3('bad', 'Visitors who are not signed in can read: <b>' + leaks.join(', ') + '</b>. Run <code>01_setup.sql</code> again or ask Claude to check the database rules.');
+      else r3('ok', 'Nests, results, visits, people and history are hidden until someone signs in.');
+    } catch (e) {
+      r3(isNetwork(e) ? 'bad' : 'warn', isNetwork(e) ? 'Cannot reach the database (see above).' : 'Could not check: <code>' + esc(e.message || e) + '</code>');
+    }
+  }
+}
+
+// 4. Satellite map
+{
+  const r = row('Satellite map pictures');
+  const url = CONFIG.esriKey
+    ? 'https://static-map-tiles-api.arcgis.com/arcgis/rest/services/static-basemap-tiles-service/v1/arcgis/imagery/static/tile/12/1617/2433?token=' + encodeURIComponent(CONFIG.esriKey)
+    : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/12/1617/2433';
+  await new Promise(done => {
+    const img = new Image(); const t = setTimeout(() => { img.src = ''; r('bad', 'The satellite pictures did not load within 10 seconds.'); done(); }, 10000);
+    img.onload = () => { clearTimeout(t); r(CONFIG.esriKey ? 'ok' : 'warn', CONFIG.esriKey ? 'Loading with your ArcGIS key.' : 'Loading without a key. Fine for testing; add a free ArcGIS key to <code>js/config.js</code> before launch.'); done(); };
+    img.onerror = () => { clearTimeout(t); r('bad', CONFIG.esriKey ? 'The ArcGIS key was refused. Check it at developers.arcgis.com (it needs the basemap tiles permission).' : 'The satellite pictures did not load. Check the internet connection.'); done(); };
+    img.src = url;
+  });
+}
+
+// 5. Password reset links
+{
+  const r = row('Password reset links');
+  const here = location.origin + location.pathname.replace(/check\.html$/, '');
+  r('warn', 'Cannot be checked from here. In Supabase → Authentication → URL Configuration, the <b>Site URL</b> must be <code>' + esc(here) + '</code>, and the same address must be in <b>Redirect URLs</b>.');
+}
+
+const bad = results.filter(x => x === 'bad').length;
+document.getElementById('summary').textContent = bad ? plural(bad) + ' to fix. The message under each red cross says how.' : 'All good. Items marked ! are reminders, not problems.';
+function plural(n) { return n === 1 ? '1 problem' : n + ' problems'; }
+</script>
+</body>
+</html>

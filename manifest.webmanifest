@@ -1,0 +1,16 @@
+{
+  "name": "Turtle Patrol",
+  "short_name": "Turtle Patrol",
+  "description": "Sea turtle nest patrols for the EMU SAGEM Underwater Research and Imaging Center.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EDF1EF",
+  "theme_color": "#0B6B6B",
+  "icons": [
+    { "src": "img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "img/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
